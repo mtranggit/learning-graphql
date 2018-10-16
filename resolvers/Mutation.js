@@ -18,10 +18,10 @@ module.exports = {
         created: new Date()
       }
 
-      const { insertedIds } = await db.collection('photos').insertOne(newPhoto)
+      const { insertedIds } = await db.collection('photos').insertMany([newPhoto])
       newPhoto.id = insertedIds[0]
 
-      var toPath = path.join(__dirname, '..', 'assets', 'photos', `${newPhoto.id}.jpg`)
+      const toPath = path.join(__dirname, '..', 'assets', 'photos', `${newPhoto.id}.jpg`)
 
       const { stream } = await args.input.file
       await uploadStream(stream, toPath)
