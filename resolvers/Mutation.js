@@ -1,10 +1,12 @@
 const { authorizeWithGithub } = require('../lib')
 const fetch = require('node-fetch')
 const { ObjectID } = require('mongodb')
+const { uploadStream } = require('../lib')
+const path = require('path')
 
 module.exports = {
 
-  async postPhoto(parent, args, { db, currentUser }) {
+  async postPhoto(parent, args, { db, currentUser, pubsub }) {
     if (!currentUser) {
       throw new Error('only authorized user can post a photo')
     }
@@ -13,8 +15,13 @@ module.exports = {
       userID: currentUser.githubLogin,
       created: new Date()
     }
-    const { insertedIds } = await db.collection('photos').insert(newPhoto)
+    const { insertedIds } = await db.collection('photos').insertOne(newPhoto)
     newPhoto.id = insertedIds[0]
+
+    const toPath = path.join(__dirname, '../', 'assets', 'photos', `${newPhoto.id}.jpg`)
+
+    const { stream } = await args.input.file
+    await uploadStream(stream, toPath)
 
     return newPhoto
   },
@@ -25,7 +32,7 @@ module.exports = {
     return db.collection('photos').findOne({ _id: ObjectID(args.photoID) })
   },
 
-  async githubAuth(parent, { code }, { db }) {
+  async githubAuth(parent, { code }, { db, pubsub }) {
     const {
       message,
       access_token,
@@ -53,7 +60,7 @@ module.exports = {
     return { user, token: access_token }
   },
 
-  async addFakeUsers(parent, { count }, { db }) {
+  async addFakeUsers(parent, { count }, { db, pubsub }) {
     const randomUserApi = `https://randomuser.me/api/?results=${count}`
     const { results } = await fetch(randomUserApi).then(res => res.json())
     const users = results.map(r => ({
@@ -62,7 +69,15 @@ module.exports = {
       avatar: r.picture.thumbnail,
       githubToken: r.login.sha1
     }))
-    await db.collection('users').insert(users)
+    await db.collection('users').insertMany(users)
+
+    const newUsers = await db.collection('users')
+      .find()
+      .sort({ _id: -1})
+      .limit(count)
+      .toArray()
+    
+    newUsers.forEach(newUser => pubsub.publish('user-added', {newUser}))
 
     return users
   },
